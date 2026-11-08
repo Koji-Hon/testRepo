@@ -11,6 +11,7 @@ Option Explicit
 '     設計書取込_フォルダ一括_フロー図なし / 設計書取込_ファイル指定_フロー図なし
 '                               … 上と同じだが概要フローの図形を作らない
 '     取込ファイル_検証         … 書式チェックのみ（ブックは作らない）
+'     取込ファイル_ソース突合   … Javaソースと突き合わせ、抜け・まとめ書きを「突合結果」シートに一覧
 '     パレット初期化            … フローオブジェクトシートに既定図形を作成
 '==========================================================================
 
@@ -1114,3 +1115,183 @@ Private Function SafeFileName(ByVal s As String) As String
     Next
     SafeFileName = s
 End Function
+
+'==========================================================================
+' ソース突合: Javaソースと取込ファイルを突き合わせ、抜け・まとめ書きを一覧にする
+'==========================================================================
+Public Sub 取込ファイル_ソース突合()
+    Dim imp As Variant, src As Variant, f As Variant, srcText As String
+    Dim methods As Object, pubs As Object, sqlIds As Object
+    Dim secs As Collection, doc As Object, sec As Object, sb As Object, a As Variant, cols As Variant
+    Dim procM As Object, procSql As Object, accIds As Object, editNames As Object, editRefs As Object
+    Dim res As New Collection, k As Variant, i As Long, j As Long
+    Dim iKind As Long, iV1 As Long, iV2 As Long, iNote As Long, pno As String, mname As String
+    Dim id As String, note As String, ref As String, req As String
+
+    imp = Application.GetOpenFilename("すべてのファイル (*.*),*.*", , "① 取込ファイルを選択", , False)
+    If VarType(imp) = vbBoolean Then Exit Sub
+    src = Application.GetOpenFilename("Javaソース (*.java),*.java,すべてのファイル (*.*),*.*", , "② 突き合わせるJavaソースを選択（複数可）", , True)
+    If Not IsArray(src) Then Exit Sub
+
+    InitRun
+    On Error GoTo EH
+    gWarn = ""
+    For Each f In src
+        srcText = srcText & vbLf & ReadText(CStr(f), ConfStr("ソース文字コード", "UTF-8"))
+    Next
+    srcText = Replace(Replace(srcText, vbCrLf, vbLf), vbCr, vbLf)
+    JavaInventory srcText, methods, pubs, sqlIds
+
+    ' --- 取込ファイル側 ---
+    Set secs = ParseFile(CStr(imp), doc)
+    Set procM = NewDict(): Set procSql = NewDict(): Set accIds = NewDict()
+    Set editNames = NewDict(): Set editRefs = NewDict()
+    For Each sec In secs
+        Set sb = sec("SUBS")(1)
+        Select Case sec("TYPE")
+        Case "PROC"
+            pno = GetVal(MakeCtx(sb("ATTR")), "処理No")
+            mname = Trim$(GetVal(MakeCtx(sb("ATTR")), "メソッド"))
+            If mname = "" Then
+                res.Add Array("処理定義", pno, "@メソッド が未記入", pno, "")
+            Else
+                procM(mname) = pno
+            End If
+            If Not IsEmpty(sb("COLS")) Then
+                cols = sb("COLS")
+                iKind = ColIndex(cols, "種別", 0): iV1 = ColIndex(cols, "値1", 2)
+                iV2 = ColIndex(cols, "値2", 3): iNote = ColIndex(cols, "備考", 4)
+                For j = 1 To sb("ROWS").Count
+                    a = sb("ROWS")(j)
+                    If UCase$(Fld(a, iKind)) = "SQL" Then
+                        id = Trim$(Fld(a, iV1))
+                        If IsBundled(id) Then res.Add Array("まとめ書き", id, "SQL IDが「／」等でまとめられている", pno, "1行1SQLに分ける")
+                        If Not procSql.Exists(id) Then procSql(id) = pno
+                        If Trim$(Fld(a, iV2)) = "" Or Trim$(Fld(a, iV2)) = id Then
+                            res.Add Array("SQL名称", id, "SQL名称が空またはIDと同じ", pno, "Javadoc等から日本語名を付ける")
+                        End If
+                    End If
+                    note = Fld(a, iNote)
+                    If InStr(note, "編集定義") > 0 Then
+                        ref = RefName(note)
+                        If ref <> "" Then editRefs(ref) = pno
+                    End If
+                Next
+            End If
+        Case "ACCESS"
+            id = Trim$(GetVal(MakeCtx(sb("ATTR")), "SQLID"))
+            If id = "" Then id = Trim$(GetVal(MakeCtx(sb("ATTR")), "アクセス名"))
+            If IsBundled(id) Then res.Add Array("まとめ書き", id, "アクセス定義でSQLがまとめられている", GetVal(MakeCtx(sb("ATTR")), "処理No"), "SQLごとにブロックを分ける")
+            accIds(id) = 1
+        Case "EDIT"
+            editNames(Trim$(GetVal(MakeCtx(sb("ATTR")), "編集名"))) = 1
+        End Select
+    Next
+
+    ' --- 突き合わせ ---
+    For Each k In methods.Keys
+        If Not procM.Exists(k) Then
+            res.Add Array("メソッド抜け", k, "処理定義にブロックがない（" & methods(k) & "）", "", "P1xx として追加")
+        End If
+    Next
+    For Each k In procM.Keys
+        If Not methods.Exists(k) Then res.Add Array("メソッド不明", k, "ソースに無いメソッド名", procM(k), "メソッド名の誤記を確認")
+    Next
+    For Each k In sqlIds.Keys
+        If Not procSql.Exists(k) Then res.Add Array("SQL抜け(処理)", k, "処理定義にSQL行がない", "", "呼出位置にSQL行を追加")
+        If Not accIds.Exists(k) Then res.Add Array("SQL抜け(アクセス)", k, "アクセス定義にブロックがない", "", "ACCESSブロックを追加")
+    Next
+    For Each k In procSql.Keys
+        If Not sqlIds.Exists(k) And Not IsBundled(CStr(k)) Then res.Add Array("SQL不明", k, "ソースに見つからないSQL ID", procSql(k), "IDの誤記を確認")
+    Next
+    For Each k In editRefs.Keys
+        If Not editNames.Exists(k) Then res.Add Array("編集定義抜け", k, "処理定義の備考で参照しているが編集定義がない", editRefs(k), "同じ@編集名のEDITを追加")
+    Next
+    If pubs.Count > 1 Then
+        For Each k In pubs.Keys
+            res.Add Array("public確認", k, "publicメソッド（入口は1つのはず）", IIf(procM.Exists(k), procM(k), ""), "入口以外ならprivateの誤りの可能性")
+        Next
+    End If
+    If sqlIds.Count = 0 Then res.Add Array("設定確認", "SQL IDパターン", "ソースからSQL IDが1つも見つからない", "", "設定シートのSQL IDパターンを確認")
+
+    WriteCheckSheet res, CStr(imp), src, methods.Count, sqlIds.Count, procM.Count, procSql.Count
+    EndRun
+    ThisWorkbook.Worksheets("突合結果").Activate
+    MsgBox "突合が終わりました。指摘 " & res.Count & " 件" & vbLf & "「突合結果」シートを確認してください。", vbInformation
+    Exit Sub
+EH:
+    EndRun
+    MsgBox "突合中にエラー: " & Err.Description, vbExclamation
+End Sub
+
+' Javaソースからメソッド名（可視性）とSQL ID（文字列リテラル）を抜き出す
+Private Sub JavaInventory(ByVal t As String, ByRef methods As Object, ByRef pubs As Object, ByRef sqlIds As Object)
+    Dim re As Object, m As Object, nm As String
+    Set methods = NewDict(): Set pubs = NewDict(): Set sqlIds = NewDict()
+    Set re = CreateObject("VBScript.RegExp")
+    re.Global = True: re.MultiLine = True
+    re.Pattern = "^[ \t]*(public|protected|private)[ \t]+(?:(?:static|final|synchronized|abstract)[ \t]+)*[\w<>\[\]\.,? ]+?[ \t]+(\w+)[ \t]*\("
+    For Each m In re.Execute(t)
+        nm = m.SubMatches(1)
+        If InStr("|if|for|while|switch|catch|return|new|class|interface|enum|", "|" & nm & "|") = 0 Then
+            If Not methods.Exists(nm) Then methods(nm) = m.SubMatches(0)
+            If m.SubMatches(0) = "public" Then pubs(nm) = 1
+        End If
+    Next
+    re.MultiLine = False
+    re.Pattern = """(" & ConfStr("SQL IDパターン", "[a-z]+[0-9]+_[A-Za-z0-9_]+") & ")"""
+    For Each m In re.Execute(t)
+        sqlIds(m.SubMatches(0)) = 1
+    Next
+End Sub
+
+Private Function IsBundled(ByVal s As String) As Boolean
+    IsBundled = (InStr(s, "／") > 0 Or InStr(s, "/") > 0 Or InStr(s, "・") > 0 Or InStr(s, "、") > 0)
+End Function
+
+' 備考「シート「編集定義」参照\n　名称」から名称を取り出す
+Private Function RefName(ByVal note As String) As String
+    Dim p As Variant, s As String
+    p = Split(note, vbLf)
+    s = p(UBound(p))
+    If UBound(p) = 0 Then
+        If InStr(s, "参照") > 0 Then s = Mid$(s, InStr(s, "参照") + 2)
+    End If
+    s = Replace(s, "　", " ")
+    RefName = Trim$(s)
+End Function
+
+Private Sub WriteCheckSheet(res As Collection, ByVal imp As String, src As Variant, _
+                            ByVal nM As Long, ByVal nS As Long, ByVal pM As Long, ByVal pS As Long)
+    Dim ws As Worksheet, r As Long, it As Variant, f As Variant, req As String, srcNames As String
+    Set ws = ThisWorkbook.Worksheets("突合結果")
+    ws.Cells.Clear
+    For Each f In src
+        srcNames = srcNames & Mid$(f, InStrRev(f, "\") + 1) & " "
+    Next
+    ws.Range("A1").Value = "ソース突合結果"
+    ws.Range("A1").Font.Bold = True: ws.Range("A1").Font.Size = 12
+    ws.Range("A2").Value = "取込ファイル: " & imp
+    ws.Range("A3").Value = "ソース: " & srcNames
+    ws.Range("A4").Value = "ソース: メソッド " & nM & " / SQL ID " & nS & "　｜　取込ファイル: 処理定義ブロック " & pM & " / SQL行(種類) " & pS & "　｜　指摘 " & res.Count & " 件"
+    r = 6
+    ws.Range("A6:E6").Value = Array("区分", "対象", "内容", "処理No", "対応")
+    ws.Range("A6:E6").Font.Bold = True
+    ws.Range("A6:E6").Interior.Color = RGB(183, 222, 232)
+    For Each it In res
+        r = r + 1
+        ws.Cells(r, 1).Resize(1, 5).Value = it
+        If it(0) <> "public確認" And it(0) <> "設定確認" Then
+            req = req & "- " & it(0) & "：" & it(1) & "（" & it(2) & "）" & vbLf
+        End If
+    Next
+    If r = 6 Then ws.Cells(7, 1).Value = "指摘なし"
+    r = r + 2
+    ws.Cells(r, 1).Value = "▼ Copilotへの依頼文（セルをコピーして /design-reverse-fix またはチャットに貼る）"
+    ws.Cells(r, 1).Font.Bold = True
+    If req = "" Then req = "（抜けなし）"
+    ws.Cells(r + 1, 1).Value = "取込ファイル " & Mid$(imp, InStrRev(imp, "\") + 1) & " について、ソースとの突合で次の抜け・誤りが見つかりました。" & _
+        "取込フォーマットの規則に従い、該当するブロックを追記・修正してください（既存の正しいブロックは変更しない）。" & vbLf & req
+    ws.Cells(r + 1, 1).WrapText = False
+    ws.Columns("A:E").VerticalAlignment = xlTop
+End Sub

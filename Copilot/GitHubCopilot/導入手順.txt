@@ -7,9 +7,12 @@ GitHub Copilot（VS Code）用 出力命令 導入手順
      /design-reverse        … 1プログラム分（起点クラス名を聞かれる）
      /design-reverse-batch  … フォルダ内を一括
      /design-reverse-proc   … 既存ファイルの処理定義だけをメソッド単位で作り直す（省略されたとき）
+     /design-reverse-fix    … Excelの「取込ファイル_ソース突合」で出た抜けだけを追記する
    と入力する
 4. design-import/ に 処理ID の名前（拡張子なし）で取込ファイルができる
-5. Excelの設計書取込ツールで「設計書取込_フォルダ一括」→ design-import フォルダを選ぶ
+5. Excelの設計書取込ツールで「取込ファイル_ソース突合」（取込ファイル＋Javaソースを選ぶ）を実行し、
+   「突合結果」シートに抜けが出たら、依頼文をコピーして /design-reverse-fix に貼る（抜けが0件になるまで）
+6. Excelの設計書取込ツールで「設計書取込_フォルダ一括」→ design-import フォルダを選ぶ
    ※ _example フォルダは中に入っているので対象外（フォルダ直下のファイルだけ取り込む）
 
 ヒント
