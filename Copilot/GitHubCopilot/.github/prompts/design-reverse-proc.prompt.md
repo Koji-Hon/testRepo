@@ -1,0 +1,22 @@
+---
+mode: agent
+description: 既存の取込ファイルの処理定義（PROC）だけを、メソッド単位で詳細に作り直す
+tools: ['codebase', 'search', 'editFiles']
+---
+# 処理定義（PROC）の作り直し
+
+- 対象ファイル: ${input:file:取込ファイル（例 design-import/SPN40190）}
+- 起点クラス: ${input:target:Serviceクラス名（例 SPN40190）}
+
+## 手順
+1. 対象ファイルの `#BEGIN PROC` ～ `#END` をすべて削除する（ほかのブロックは触らない）。
+2. 起点クラスの public メソッドを上から順に、1メソッド＝1 PROC ブロックとして書き、
+   書くたびに FLOW ブロックの直後（PROC があった位置）へ追記する。全メソッドを書き終えるまで止めない。
+3. 書き方は [取込フォーマット](../instructions/design-import-format.instructions.md) の PROC の規則に従う。
+   - 要約禁止。private メソッドは呼び出し位置に展開する
+   - SQL行は呼び出し位置に、直前のT行に条件。名称はJavadoc/コメントから（SQL IDの繰り返し禁止）
+   - SQL行の前後に目的・条件・結果の使い方のT行（説明なしのSQL連続禁止）
+   - 登録・更新・削除・値設定は、備考で「シート「(アクセス定義」「)編集定義」参照\n　<編集名>」と参照する
+     （中身は処理定義に書かない）。参照した <編集名> の EDIT がファイルに無ければ、EDIT ブロックも追加する
+   - 例外・件数チェックは TH/TD の表
+4. 終わったら、PROC のブロック数・SQL行数・ACCESS ブロック数をチャットに報告する（SQL行数とACCESS数が違えば差分のIDも）。

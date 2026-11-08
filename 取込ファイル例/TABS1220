@@ -1,0 +1,325 @@
+-- ===================================================================
+-- サービス設計書 取込ファイル（拡張子なし / UTF-8）
+--   #BEGIN 種別 ～ #END   … 1ブロック（同じ種別を何個並べてもよい）
+--   @キー=値             … 見出し項目
+--   >サブ名               … ブロック内の小見出し（IN/OUT、結合テーブル等）
+--   見出しの次の非@行      … 明細の列名（| 区切り）、以降は明細データ
+--   値の中の改行は \n、縦棒は \| 。「--」で始まる行はコメント
+-- ===================================================================
+
+#BEGIN DOC
+@システム名=L1DS
+@業務ID=TA
+@業務名=発注管理
+@機能ID=TAB
+@機能名=約定テンプレート登録
+@処理ID=TABS1220
+@処理名=作業工程検索
+@作成者=自動生成
+@作成日=2026/11/08
+@更新者=
+@更新日=
+@接続先DB=L1DB
+#END
+
+#BEGIN HIST
+版数|変更日|変更者|変更区分|変更内容
+1.00|2026/11/08|自動生成|新規|Javaソースよりリバース作成
+#END
+
+#BEGIN SVC
+項番|サービスID|サービス名|区分|呼出元処理|備考
+1|TABS1220sel01|作業工程取得|DAO|P100|
+2|TABS1220sel02|工事ケーブル接続取得|DAO|P100|ループ内で呼出
+#END
+
+#BEGIN IOLIST
+@見出し=Entity・Object I/O一覧
+項番|論理名|物理名|種別|I/O|処理No|編集名|項目数|備考
+1|TABS1220入力Dto|TABS1220InDto|Dto|O|P100|作業工程取得|11|引数
+2|TABS1220sel01入力エンティティ|TABS1220Sel01EntityI|Entity|IO|P100|作業工程取得|11|I=Dtoから設定 / O=SQLパラメータへ
+3|TABS1220sel01出力エンティティ|TABS1220Sel01EntityO|Entity|IO|P100|作業工程取得|10|I=SQL結果 / O=出力Dtoへ
+4|TABS1220sel02入力エンティティ|TABS1220Sel02EntityI|Entity|IO|P100|工事ケーブル接続取得|1|
+5|TABS1220sel02出力エンティティ|TABS1220Sel02EntityO|Entity|IO|P100|工事ケーブル接続取得|4|
+6|TABS1220出力Dto|TABS1220OutDto|Dto|IO|P100|作業工程取得 / A・Zビル情報詰め替え|10|I=sel01結果・sel02結果 / O=ソート
+7|TABS1220出力Dtoリスト|List<TABS1220OutDto>|Object|IO|P100|戻り値返却|-|戻り値
+#END
+
+#BEGIN FLOW
+@フロー名=作業工程検索（TABS1220）概要フロー
+ID|種別|テキスト|次|列|段|処理No
+S|開始|開始||0||
+P1|処理概要|作業工程取得|D1|0||P100
+D1|分岐|取得件数=0件?|E1:Yes,D2:No|0||
+E1|処理|エラー TAB102I\nをスロー|Z|1||
+D2|分岐|10000件超?|E2:Yes,L1:No|0||
+E2|処理|エラー TAB103E\nをスロー|Z|2||
+L1|ループ始|取得件数分||0||
+D3|分岐|工程種別='07'?|P2:Yes,L2:No|0||
+P2|処理|工事ケーブル接続取得\n(tabs1220sel02)||0||P100
+P3|処理|A/Zビル情報詰め替え||0||
+L2|ループ終|ループ終端||0||
+P4|処理|ソート\nビル,フロア,群,架…||0||
+P5|処理|戻り値返却||0||
+Z|終了|終了|-|0||
+T1|テーブル|作業工程\n(TD_WK_KOTE)|~P1:取得|1|2|
+#END
+
+#BEGIN PROC
+@処理No=P100
+@処理名=作業工程検索
+種別|階層|値1|値2|備考
+T|1|1. 件数チェック||
+T|2|1-1. 作業工程取得処理||
+T|3|DAO実行||
+SQL|3|tabs1220sel01|作業工程取得|シート「アクセス定義」「編集定義」参照\n　作業工程取得
+BR||||
+T|4|a. 取得件数が0件の場合、以下のエラーコード、メッセージをCdcsBusinessExceptionに格納し、スローする。||
+TH|4|エラーコード|メッセージ|
+TD|4|TAB102I|検索条件に合致するデータはありません。|
+BR||||
+T|4|b. 取得件数が10000件を超えている場合、以下のエラーコード、メッセージをCdcsBusinessExceptionに格納し、スローする。||
+TH|4|エラーコード|メッセージ|
+TD|4|TAB103E|検索結果の件数が10,000件を超えています。検索条件を見直して再度検索してください。|
+BR||||
+T|4|c. 取得件数が0件でない場合、取得件数分、以下の処理を行う（ループ処理）||
+BR||||
+T|5|c-1. 作業工程取得結果.作業工程種別 = '07'の場合||
+T|6|DAO実行||
+SQL|6|tabs1220sel02|工事ケーブル接続取得|シート「アクセス定義」「編集定義」参照\n　工事ケーブル接続取得
+T|6|※取得件数0件は起こりえないので考慮しない||
+BR||||
+T|5|c-2. 作業工程取得結果.ビルコード = 工事ケーブル接続取得結果.Aビルコード の場合||シート「編集定義」参照\n　Aビル情報詰め替え
+T|6|A情報のビル名、フロアコード、群コード、架番号を作業工程取得結果に詰め替える||
+BR||||
+T|5|c-3. 作業工程取得結果.ビルコード = 工事ケーブル接続取得結果.Zビルコード の場合||シート「編集定義」参照\n　Zビル情報詰め替え
+T|6|Z情報のビル名、フロアコード、群コード、架番号を作業工程取得結果に詰め替える||
+BR||||
+T|4|d. cの結果を含めた状態で以下のソートを行う||
+T|5|ビルコード,フロア,群,架,工程指示番号,作業工程番号 の昇順||
+BR||||
+T|1|2. 戻り値返却||
+T|2|2-1. 返却用Dtoリストを応答Dtoに設定して返却する||シート「編集定義」参照\n　戻り値設定
+#END
+
+#BEGIN EDIT
+@処理No=P100
+@処理名=作業工程検索
+@編集名=作業工程取得
+@補足=
+>IN
+@件数=単一
+項番|項目|項目詳細|設定元|設定値|備考
+1|TABS1220Sel01EntityI|TABS1220sel01入力エンティティ|引数|TABS1220入力Dto|
+1-1|TABS1220Sel01入力エンティティ|発注管理番号|TABS1220入力Dto|発注管理番号|
+1-2|TABS1220Sel01入力エンティティ|変更回数|TABS1220入力Dto|変更回数|
+1-3|TABS1220sel01入力エンティティ|リスト<NWID>|TABS1220入力Dto|NWID|改行コード(\\n)で分割し、リストに追加する
+1-4|TABS1220sel01入力エンティティ|リスト<工程指示番号>|TABS1220入力Dto|工程指示番号|改行コード(\\n)で分割し、リストに追加する
+1-5|TABS1220sel01入力エンティティ|リスト<WBSコード>|TABS1220入力Dto|WBSコード|改行コード(\\n)で分割し、リストに追加する
+1-6|TABS1220sel01入力エンティティ|リスト<工程種別>|TABS1220入力Dto|工程種別リスト|
+1-7|TABS1220sel01入力エンティティ|完成予定日（開始日）|TABS1220入力Dto|完成予定日（開始日）|
+1-8|TABS1220sel01入力エンティティ|完成予定日（終了日）|TABS1220入力Dto|完成予定日（終了日）|
+1-9|TABS1220sel01入力エンティティ|ビルコード|TABS1220入力Dto|ビルコード|
+1-10|TABS1220sel01入力エンティティ|エリアコード|TABS1220入力Dto|エリアコード|
+1-11|TABS1220sel01入力エンティティ|ブロックコード|TABS1220入力Dto|ブロックコード|
+>SQLIN
+@SQLID=tabs1220sel01
+項番|Entity|項目|SQLパラメータ|対応カラム|備考
+1|TABS1220Sel01EntityI|リスト<NWID>|#{nwidList}|c.NEW_PATH_ID|空の場合は条件から除外
+2|TABS1220Sel01EntityI|リスト<工程指示番号>|#{koteSijiNoList}|a.KOTE_SIJI_NO|空の場合は条件から除外
+3|TABS1220Sel01EntityI|リスト<WBSコード>|#{wbsCodeList}|d.WBS_CODE|空の場合は条件から除外
+4|TABS1220Sel01EntityI|リスト<工程種別>|#{koteSbtList}|a.KOTE_SBT|空の場合は条件から除外
+5|TABS1220Sel01EntityI|ビルコード|#{bldgCd}|i.BLDG_CD|空の場合は条件から除外
+6|TABS1220Sel01EntityI|エリアコード|#{areaCd}|j.AREA_CD|空の場合は条件から除外
+7|TABS1220Sel01EntityI|ブロックコード|#{blkCd}|k.BLK_CD|空の場合は条件から除外
+8|TABS1220Sel01EntityI|完成予定日（開始日）|#{knseYteiddStrt}|a.KNSE_YTEIDD|
+9|TABS1220Sel01EntityI|完成予定日（終了日）|#{knseYteiddEnd}|a.KNSE_YTEIDD|
+>SQLOUT
+@SQLID=tabs1220sel01
+項番|結果カラム|別名|Entity|項目|備考
+1|h.SSKNAM_RYKS|ssk|TABS1220Sel01EntityO|組織名略称|
+2|a.KOTE_SIJI_NO||TABS1220Sel01EntityO|工程指示番号|
+3|a.KOTE_SIJI_CNT||TABS1220Sel01EntityO|工程指示内容|
+4|d.WBS_CODE||TABS1220Sel01EntityO|WBSコード|
+5|e.WBS_NAM||TABS1220Sel01EntityO|WBS名|
+6|b.BLDG_CD||TABS1220Sel01EntityO|ビルコード|
+7|i.BLDGNAM_RYKS|bldg_nam|TABS1220Sel01EntityO|ビル名略称|
+8|g.FLOR_CD|flor|TABS1220Sel01EntityO|フロアコード|
+9|g.GN_CD|gn|TABS1220Sel01EntityO|群コード|
+10|g.GA_NO||TABS1220Sel01EntityO|架番号|
+>OUT
+@件数=複数
+項番|項目|項目詳細|設定元|設定値|備考
+1|TABS1220出力Dtoリスト|TABS1220出力Dto|||ループ処理
+1-1|TABS1220出力Dto|主管組織|TABS1220sel01出力エンティティ|組織名略称|
+1-2|TABS1220出力Dto|工程指示番号|TABS1220sel01出力エンティティ|工程指示番号|
+1-3|TABS1220出力Dto|工程指示内容|TABS1220sel01出力エンティティ|工程指示内容|
+1-4|TABS1220出力Dto|WBSコード|TABS1220sel01出力エンティティ|WBSコード|
+1-5|TABS1220出力Dto|WBS名|TABS1220sel01出力エンティティ|WBS名|
+1-6|TABS1220出力Dto|ビルコード|TABS1220sel01出力エンティティ|ビルコード|
+1-7|TABS1220出力Dto|ビル名|TABS1220sel01出力エンティティ|ビル名略称|
+1-8|TABS1220出力Dto|フロア|TABS1220sel01出力エンティティ|フロアコード|
+1-9|TABS1220出力Dto|群|TABS1220sel01出力エンティティ|群コード|
+1-10|TABS1220出力Dto|架番号|TABS1220sel01出力エンティティ|架番号|
+#END
+
+#BEGIN EDIT
+@処理No=P100
+@処理名=作業工程検索
+@編集名=工事ケーブル接続取得
+>IN
+@件数=単一
+項番|項目|項目詳細|設定元|設定値|備考
+1|TABS1220Sel02EntityI|TAAS1120sel03入力エンティティ|TABS1220Sel02出力エンティティリスト|List<TABS1220Sel02EntityO>|
+1-1|TABS1220Sel02入力エンティティ|工事物品ID|TABS1220Sel02出力エンティティ|工事物品ID|
+>SQLIN
+@SQLID=tabs1220sel02
+項番|Entity|項目|SQLパラメータ|対応カラム|備考
+1|TABS1220Sel02EntityI|工事物品ID|#{kojiBpnId}|f.KOJI_BPN_ID|
+>SQLOUT
+@SQLID=tabs1220sel02
+項番|結果カラム|別名|Entity|項目|備考
+1|m.A_BLDG_CD||TABS1220Sel02EntityO|Aビルコード|
+2|m.A_BLDGNAM||TABS1220Sel02EntityO|Aビル名|
+3|m.Z_BLDG_CD||TABS1220Sel02EntityO|Zビルコード|
+4|m.Z_BLDGNAM||TABS1220Sel02EntityO|Zビル名|
+>OUT
+@件数=単一
+項番|項目|項目詳細|設定元|設定値|備考
+1|TABS1220Sel02出力エンティティ|TABS1220Sel02EntityO|||詰め替え不要
+#END
+
+#BEGIN EDIT
+@処理No=P100
+@処理名=作業工程検索
+@編集名=A・Zビル情報詰め替え
+@補足=作業工程取得結果.ビルコード と 工事ケーブル接続取得結果のA/Zビルコードが一致した側の情報を詰め替える
+>MAP
+@見出し=Aビル情報詰め替え（ビルコード = Aビルコード の場合）
+@編集元=TABS1220Sel02EntityO（工事ケーブル接続取得結果）
+@編集先=TABS1220OutDto（作業工程取得結果）
+@件数=単一
+項番|項目|項目詳細|設定元|設定値|備考
+1|TABS1220出力Dto|ビル名|TABS1220Sel02EntityO|Aビル名|
+2|TABS1220出力Dto|フロア|TABS1220Sel02EntityO|Aフロアコード|
+3|TABS1220出力Dto|群|TABS1220Sel02EntityO|A群コード|
+4|TABS1220出力Dto|架番号|TABS1220Sel02EntityO|A架番号|
+>MAP
+@見出し=Zビル情報詰め替え（ビルコード = Zビルコード の場合）
+@編集元=TABS1220Sel02EntityO（工事ケーブル接続取得結果）
+@編集先=TABS1220OutDto（作業工程取得結果）
+@件数=単一
+項番|項目|項目詳細|設定元|設定値|備考
+1|TABS1220出力Dto|ビル名|TABS1220Sel02EntityO|Zビル名|
+2|TABS1220出力Dto|フロア|TABS1220Sel02EntityO|Zフロアコード|
+3|TABS1220出力Dto|群|TABS1220Sel02EntityO|Z群コード|
+4|TABS1220出力Dto|架番号|TABS1220Sel02EntityO|Z架番号|
+#END
+
+#BEGIN EDIT
+@処理No=P100
+@処理名=作業工程検索
+@編集名=戻り値設定
+>MAP
+@見出し=戻り値設定（応答Dtoへの設定）
+@編集元=TABS1220出力Dtoリスト（ソート後）
+@編集先=TABS1220応答Dto
+@件数=単一
+項番|項目|項目詳細|設定元|設定値|備考
+1|TABS1220応答Dto|作業工程リスト（koteList）|TABS1220出力Dtoリスト|1-1.dでソートしたリスト|
+2|TABS1220応答Dto|件数（count）|TABS1220出力Dtoリスト|リストの件数|
+3|TABS1220応答Dto|情報コード（infoCd）|固定値|空文字（正常終了）|
+#END
+
+#BEGIN ACCESS
+@処理No=P100
+@アクセス名=作業工程取得
+@概要=NWID、工程指示番号、WBSコード、工程種別のいずれかまたはすべてを引数として、作業工程取得する
+>ITEM
+@見出し=項目（取得）
+@処理種別=取得
+@件数=複数
+@InEntity=TABS1220Sel01EntityI
+@OutEntity=TABS1220Sel01EntityO
+項番|別名テーブル|論理名|物理名|編集仕様|備考
+1|h|組織名略称|SSKNAM_RYKS|AS ssk|
+2|a|工程指示番号|KOTE_SIJI_NO||
+3|a|工程指示内容|KOTE_SIJI_CNT||
+4|d|WBSコード|WBS_CODE||
+5|e|WBS名|WBS_NAM||
+6|b|ビルコード|BLDG_CD||
+7|i|ビル名略称|BLDGNAM_RYKS|AS bldg_nam|
+8|g|フロアコード|FLOR_CD|AS flor|
+9|g|群コード|GN_CD|AS gn|
+10|g|架番号|GA_NO||
+>TABLE
+別名テーブル|論理名|物理名|備考
+a|工程指示|TD_KOTE_SIJI|
+>JOIN
+@結合方法=内部結合
+@別名テーブル=b
+@論理名=作業工程
+@物理名=TD_WK_KOTE
+論理演算子|結合方法|左別名|左論理名|左物理名|条件|右別名|右論理名|右物理名|備考
+-|内部結合|b|工程指示番号|KOTE_SIJI_NO|=|a|工程指示番号|KOTE_SIJI_NO|
+AND|-|b|工程種別|KOTE_SBT|=|a|工程種別|KOTE_SBT|
+>JOIN
+@結合方法=左外部結合
+@別名テーブル=c
+@論理名=パス
+@物理名=TD_PATH
+論理演算子|結合方法|左別名|左論理名|左物理名|条件|右別名|右論理名|右物理名|備考
+-|左外部結合|c|パスID|PATH_ID|=|a|パスID|PATH_ID|
+>JOIN
+@結合方法=内部結合
+@別名テーブル=d
+@論理名=WBSコード紐付
+@物理名=TD_WBS_CD_HMDK
+論理演算子|結合方法|左別名|左論理名|左物理名|条件|右別名|右論理名|右物理名|備考
+-|内部結合|d|工程指示番号|KOTE_SIJI_NO|=|b|工程指示番号|KOTE_SIJI_NO|
+AND|-|d|工程種別|KOTE_SBT|=|b|工程種別|KOTE_SBT|
+AND|-|d|作業工程番号|WK_KOTE_NO|=|b|作業工程番号|WK_KOTE_NO|
+>WHERE
+@論理演算子=-
+@概要=項目を取得するため、以下の項目を条件に指定
+論理演算子|別名テーブル|論理名|物理名|編集仕様|備考
+(|c|NWID|NEW_PATH_ID|IN パラメータ「NWID」|※値が空の場合は除外する（抽出条件に含まない）
+OR|a|工程指示番号|KOTE_SIJI_NO|IN パラメータ「工程指示番号」|※値が空の場合は除外する（抽出条件に含まない）
+OR|d|WBSコード|WBS_CODE|IN パラメータ「WBSコード」|※値が空の場合は除外する（抽出条件に含まない）
+)AND|a|工程種別|KOTE_SBT|IN パラメータ「工程種別」|※値が空の場合は除外する（抽出条件に含まない）
+AND|b|作業工程種別コード|WK_KOTE_SBT_CD|IN ('01', '03', '05', '07')|パネル増設 または ユニット増設 または 架新設 または ケーブル配線
+AND|b|工程進捗区分|KOTE_SNTK_KBN|= '1'|
+>SORT
+項番|別名テーブル|論理名|物理名|順序|備考
+1|b|ビルコード|BLDG_CD|昇順|
+2|g|フロアコード|FLOR_CD|昇順|
+#END
+
+#BEGIN OBJ
+@論理名称=TABS1220入力Dto
+@物理名称=TABS1220InDto
+項番|論理名|物理名|型|備考
+1|発注管理番号|httyKnriNo|String|
+2|変更回数|hnkosu|Integer|
+3|NWID|newPathId|String|
+4|工程指示番号|koteSijiNo|String|
+5|WBSコード|wbsCode|String|
+6|工程種別リスト|koteSbtList|List<String>|
+7|完成予定日(開始日)|knseYteiddStrt|String|
+8|完成予定日(終了日)|knseYteiddEnd|String|
+9|ビルコード|bldgCd|String|
+10|エリアコード|areaCd|String|
+11|ブロックコード|blkCd|String|
+#END
+
+#BEGIN OBJ
+@論理名称=TABS1220出力Dto
+@物理名称=TABS1220OutDto
+項番|論理名|物理名|型|備考
+1|主管組織|shknSsk|String|
+2|工程指示番号|koteSijiNo|String|
+3|ケーブル接続情報|cblStzk|CableInfo|
+3-1|Aビル名|aBldgNam|String|
+3-2|Zビル名|zBldgNam|String|
+4|作業工程番号|wkKoteNo|String|
+#END
